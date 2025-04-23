@@ -8,7 +8,7 @@ arduino = serial.Serial('COM5', 9600, timeout=1)
 time.sleep(2)  # Give some time for Arduino to initialize
 
 # Initialize webcam
-cap = cv2.VideoCapture(2)
+cap = cv2.VideoCapture(1)
 
 # Function to map values from one range to another
 def map_range(value, in_min, in_max, out_min, out_max):
