@@ -14,8 +14,8 @@ import pickle
 from datetime import datetime
 
 # Define paths
-MODEL_PATH = "robot_arm_rl_model1.pkl"
-CSV_PATH = "robotlog.csv"
+MODEL_PATH = "robot_arm_rl_model.pkl"
+CSV_PATH = "robot_arm_log.csv"
 
 
 # Neural Network Architecture for Actor (Policy) Network
@@ -190,19 +190,18 @@ class TD3Agent:
 
             print("Successfully loaded model from", path)
             return True
-        except Exception as e:
-            print(f"Failed to load model from {path}: {e}")
+        except:
+            print("Failed to load model from", path)
             return False
 
 
-# Function to load and preprocess CSV data - Adapted for the dataset format
+# Function to load and preprocess CSV data
 def load_csv_data(csv_path):
     if not os.path.exists(csv_path):
         print(f"Warning: CSV file {csv_path} not found!")
         return pd.DataFrame()
 
     try:
-        # Load the dataset with the specific format shown in the data
         data = pd.read_csv(csv_path)
         print(f"Loaded CSV data with {len(data)} records and columns: {data.columns.tolist()}")
         return data
@@ -211,7 +210,7 @@ def load_csv_data(csv_path):
         return pd.DataFrame()
 
 
-# Function to extract training data from CSV - Adapted for the dataset format
+# Function to extract training data from CSV
 def extract_training_data(data):
     if data.empty:
         print("No data available for training")
@@ -221,56 +220,20 @@ def extract_training_data(data):
     actions = []
 
     try:
-        # Data format from the sample data shown (using direct column indices)
-        # Check if we have the expected column headers
-        expected_cols = ['timestamp', 'base_angle', 'base_diff', 'base_dir',
-                         'shoulder_angle', 'shoulder_diff', 'shoulder_dir',
-                         'elbow_angle', 'elbow_diff', 'elbow_dir',
-                         'wrist_angle', 'wrist_diff', 'wrist_dir',
-                         'gripper_angle']
+        # Extract columns for each servo angle
+        servo_cols = [col for col in data.columns if 'Servo' in col and 'Angle' in col]
+        if not servo_cols:
+            print("Warning: No servo angle columns found in CSV")
+            return [], []
 
-        # Get servo angle columns
-        cols = data.columns.tolist()
-        angle_cols = [c for c in cols if c.endswith('_angle')]
+        for i in range(len(data) - 1):
+            # Current state (servo angles)
+            state = data.iloc[i][servo_cols].values.astype(np.float32)
+            # Next state as the action to take
+            action = data.iloc[i + 1][servo_cols].values.astype(np.float32)
 
-        if len(angle_cols) >= 5:  # We need at least 5 angle columns
-            for i in range(len(data) - 1):
-                # Current state (servo angles) - using only angle columns
-                current_angles = []
-                for col in angle_cols[:5]:  # Use first 5 angle columns
-                    current_angles.append(data.iloc[i][col])
-
-                # Next state as the action to take
-                next_angles = []
-                for col in angle_cols[:5]:  # Use first 5 angle columns
-                    next_angles.append(data.iloc[i + 1][col])
-
-                states.append(np.array(current_angles, dtype=np.float32))
-                actions.append(np.array(next_angles, dtype=np.float32))
-        else:
-            # Fallback to direct column indices - this matches the format in the data
-            for i in range(len(data) - 1):
-                # Get the angles from the current row using column indices:
-                # Assuming columns: base_angle, shoulder_angle, elbow_angle, wrist_angle, gripper_angle
-                state = np.array([
-                    data.iloc[i, 1],  # base_angle (column index 1)
-                    data.iloc[i, 4],  # shoulder_angle (column index 4)
-                    data.iloc[i, 7],  # elbow_angle (column index 7)
-                    data.iloc[i, 10],  # wrist_angle (column index 10)
-                    data.iloc[i, 13]  # gripper_angle (column index 13)
-                ], dtype=np.float32)
-
-                # Get the angles from the next row
-                action = np.array([
-                    data.iloc[i + 1, 1],  # base_angle
-                    data.iloc[i + 1, 4],  # shoulder_angle
-                    data.iloc[i + 1, 7],  # elbow_angle
-                    data.iloc[i + 1, 10],  # wrist_angle
-                    data.iloc[i + 1, 13]  # gripper_angle
-                ], dtype=np.float32)
-
-                states.append(state)
-                actions.append(action)
+            states.append(state)
+            actions.append(action)
 
         print(f"Extracted {len(states)} state-action pairs for training")
         return states, actions
@@ -319,74 +282,16 @@ def setup_agent(csv_path, model_path):
 
             # Train the agent
             print("Starting training...")
-            epochs = min(100000, len(states) * 5)  # Scale training based on data size
-            for epoch in range(epochs):
+            for epoch in range(100000):
                 agent.learn()
                 if epoch % 10 == 0:
-                    print(f"Completed training epoch {epoch}/{epochs}")
+                    print(f"Completed training epoch {epoch}/100")
 
             # Save the trained model
             agent.save(model_path)
             print(f"Model saved to {model_path}")
 
     return agent
-
-
-# Helper function to get direction text based on difference value
-def get_direction(diff):
-    if diff == 0:
-        return "center"
-    elif diff > 0:
-        return "right" if abs(diff) > 45 else "up"
-    else:  # diff < 0
-        return "left" if abs(diff) > 45 else "down"
-
-
-# Function to log data to CSV that matches the format of the dataset
-def log_data(csv_path, servo_angles, object_pos=None, hit_direction=None):
-    timestamp = datetime.now().strftime("%m/%d/%Y %H:%M")
-
-    # Home position for calculating differences (90° is considered center)
-    home_positions = [90, 90, 90, 90, 90]
-
-    # Initialize data dictionary
-    data = {
-        'timestamp': timestamp,
-        'base_angle': int(servo_angles[0]),
-        'base_diff': int(servo_angles[0] - home_positions[0]),
-        'base_dir': get_direction(int(servo_angles[0] - home_positions[0])),
-        'shoulder_angle': int(servo_angles[1]),
-        'shoulder_diff': int(servo_angles[1] - home_positions[1]),
-        'shoulder_dir': get_direction(int(servo_angles[1] - home_positions[1])),
-        'elbow_angle': int(servo_angles[2]),
-        'elbow_diff': int(servo_angles[2] - home_positions[2]),
-        'elbow_dir': get_direction(int(servo_angles[2] - home_positions[2])),
-        'wrist_angle': int(servo_angles[3]),
-        'wrist_diff': int(servo_angles[3] - home_positions[3]),
-        'wrist_dir': get_direction(int(servo_angles[3] - home_positions[3])),
-        'gripper_angle': int(servo_angles[4])
-    }
-
-    # Add object position if available
-    if object_pos:
-        data['object_x'] = object_pos[0]
-        data['object_y'] = object_pos[1]
-
-    # Add hit direction if available
-    if hit_direction:
-        data['hit_direction'] = hit_direction
-
-    # Convert to DataFrame
-    df_row = pd.DataFrame([data])
-
-    # Append to CSV
-    try:
-        if os.path.exists(csv_path):
-            df_row.to_csv(csv_path, mode='a', header=False, index=False)
-        else:
-            df_row.to_csv(csv_path, index=False)
-    except Exception as e:
-        print(f"Error logging data: {e}")
 
 
 # Function to calculate reward based on object movement
@@ -417,17 +322,57 @@ def calculate_reward(object_detected, prev_pos, curr_pos, hit_direction='away'):
     return -0.5 * movement  # Penalty proportional to movement
 
 
+# Function to log data to CSV
+def log_data(csv_path, servo_angles, object_pos=None, hit_direction=None):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    # Default values
+    home_angles = [90, 90, 90, 90, 90]  # Home position angles
+
+    # Initialize data dictionary
+    data = {'Timestamp': timestamp}
+
+    # Add servo angles, differences from home, and directions
+    for i, angle in enumerate(servo_angles):
+        angle = int(angle)
+        diff = angle - home_angles[i]
+        direction = "Up/Forward" if diff > 0 else "Down/Backward" if diff < 0 else "Center"
+
+        data[f'Servo{i + 1}Angle'] = angle
+        data[f'Diff{i + 1}'] = diff
+        data[f'Dir{i + 1}'] = direction
+
+    # Add object position if available
+    if object_pos:
+        data['ObjectX'] = object_pos[0]
+        data['ObjectY'] = object_pos[1]
+
+    # Add hit direction if available
+    if hit_direction:
+        data['HitDirection'] = hit_direction
+
+    # Convert to DataFrame
+    df_row = pd.DataFrame([data])
+
+    # Append to CSV
+    try:
+        if os.path.exists(csv_path):
+            df_row.to_csv(csv_path, mode='a', header=False, index=False)
+        else:
+            df_row.to_csv(csv_path, index=False)
+    except Exception as e:
+        print(f"Error logging data: {e}")
+
+
 # Main function
 def main():
     # Initialize serial communication with Arduino
     try:
         arduino = serial.Serial('COM5', 9600, timeout=1)
         time.sleep(2)  # Give time for Arduino to initialize
-        print("Arduino connected successfully")
     except Exception as e:
         print(f"Error connecting to Arduino: {e}")
-        print("Running in simulation mode without hardware")
-        arduino = None
+        return
 
     # Setup agent
     agent = setup_agent(CSV_PATH, MODEL_PATH)
@@ -435,20 +380,15 @@ def main():
     # Initialize webcam
     cap = cv2.VideoCapture(1)
     if not cap.isOpened():
-        print("Error: Could not open webcam. Trying camera 0...")
-        cap = cv2.VideoCapture(0)
-        if not cap.isOpened():
-            print("Error: Could not open any camera. Exiting.")
-            if arduino:
-                arduino.close()
-            return
+        print("Error: Could not open webcam.")
+        return
 
     # Frame dimensions
     frame_width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
     frame_height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
 
     # Initialize state
-    # [base, shoulder, elbow, wrist, gripper, obj_x, obj_y]
+    # [servo1, servo2, servo3, servo4, servo5, obj_x, obj_y]
     current_state = np.array([90, 90, 90, 90, 90, 0, 0], dtype=np.float32)
 
     # Object tracking variables
@@ -518,27 +458,22 @@ def main():
                     action = agent.act(current_state)
 
                     # Send servo angles to Arduino
-                    if arduino:
-                        command = ",".join([str(int(angle)) for angle in action])
-                        arduino.write(f"{command}\n".encode())
+                    command = ",".join([str(int(angle)) for angle in action])
+                    arduino.write(f"{command}\n".encode())
 
                     # Draw bounding box and display info
                     cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
                     cv2.circle(frame, (center_x, center_y), 5, (0, 0, 255), -1)
 
-                    # Display joint names and angles on frame
-                    joint_names = ["Base", "Shoulder", "Elbow", "Wrist", "Gripper"]
-                    for i, (name, angle) in enumerate(zip(joint_names, action)):
-                        diff = int(angle - 90)
-                        direction = get_direction(diff)
-                        angle_text = f"{name}: {int(angle)}° ({diff}, {direction})"
-                        cv2.putText(frame, angle_text, (10, 30 + i * 25),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+                    # Display angles on frame
+                    angle_text = f"Angles: {' '.join([str(int(a)) for a in action])}"
+                    cv2.putText(frame, angle_text, (10, 30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
                     # Display reward on frame
                     reward_text = f"Reward: {reward:.2f}"
-                    cv2.putText(frame, reward_text, (10, 180),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                    cv2.putText(frame, reward_text, (10, 60),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
                     # Check if object was hit (significant movement)
                     if previous_position is not None:
@@ -553,14 +488,14 @@ def main():
 
                             # Display hit info
                             hit_text = f"Hit #{hit_count}: {hit_direction}"
-                            cv2.putText(frame, hit_text, (10, 210),
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                            cv2.putText(frame, hit_text, (10, 90),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
 
                     # Update previous position
                     previous_position = current_position
 
                     # Get current servo positions from Arduino feedback
-                    if arduino and arduino.in_waiting > 0:
+                    if arduino.in_waiting > 0:
                         feedback = arduino.readline().decode().strip()
                         if feedback.startswith("Current angles:"):
                             try:
@@ -582,10 +517,6 @@ def main():
                             if len(agent.memory) % 100 == 0:
                                 agent.save(MODEL_PATH)
 
-                    # Log data periodically to the main CSV file
-                    if random.random() < 0.05:  # Log ~5% of frames
-                        log_data(CSV_PATH, action)
-
             # Display the frames
             cv2.imshow("Object Tracking", frame)
             cv2.imshow("Mask", mask)
@@ -602,8 +533,7 @@ def main():
         # Release resources
         cap.release()
         cv2.destroyAllWindows()
-        if arduino:
-            arduino.close()
+        arduino.close()
 
 
 if __name__ == "__main__":
