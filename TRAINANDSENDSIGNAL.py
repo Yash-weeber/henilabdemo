@@ -14,8 +14,8 @@ import pickle
 from datetime import datetime
 
 # Define paths
-MODEL_PATH = "robot_arm_rl_model.pkl"
-CSV_PATH = "robot_arm_log.csv"
+MODEL_PATH = "robotarm.pkl"
+CSV_PATH = "robootlog.csv"
 
 
 # Neural Network Architecture for Actor (Policy) Network
